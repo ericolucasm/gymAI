@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 
+// ─── HELPER: acessa window.gymData com fallback seguro ────────────────────────
+const gd = () => window.gymData || {};
+
 const C = {
   bg: "#0A0A0F", surface: "#13131A", card: "#1C1C28", border: "#2A2A3A",
   accent: "#C8F135", red: "#FF4757", blue: "#3D91FF", purple: "#9B59FF",
@@ -462,7 +465,7 @@ const AnamneseModal = ({ onClose }) => {
       )}
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
         <button onClick={() => step > 0 ? setStep(s => s-1) : onClose()} style={{ ...btn(C.muted,true) }}>{step===0?"Cancelar":"← Anterior"}</button>
-        {step < steps.length-1 ? <button onClick={() => setStep(s => s+1)} style={btn(C.accent)}>Próximo →</button> : <button onClick={onClose} style={btn(C.accent)}>✓ Salvar</button>}
+        {step < steps.length-1 ? <button onClick={() => setStep(s => s+1)} style={btn(C.accent)}>Próximo →</button> : <button onClick={async () => { if (gd().saveAnamnese) await gd().saveAnamnese(form); onClose(); }} style={btn(C.accent)}>✓ Salvar</button>}
       </div>
     </Modal>
   );
@@ -812,7 +815,7 @@ const AvatarScreen = () => {
             <div style={{ fontSize:13, fontWeight:700 }}>Lucas Mendes</div>
             <div style={{ display:"flex", gap:6 }}><Badge text="175cm" color={C.blue} /><Badge text="80kg" color={C.purple} /></div>
           </div>
-          <button style={{ ...btn(C.accent), width:"100%", borderRadius:10 }}>💾 Salvar Avatar</button>
+          <button onClick={async () => { if (gd().saveAvatar) { await gd().saveAvatar(config); alert("Avatar salvo!"); } }} style={{ ...btn(C.accent), width:"100%", borderRadius:10 }}>💾 Salvar Avatar</button>
           <button style={{ ...btn(C.muted,true), width:"100%", borderRadius:10, fontSize:12 }} onClick={() => setConfig({ pele:"medio", cabelo_estilo:"curto", cabelo_cor:"preto", roupa_top:"verde", roupa_bottom:"azul", acessorio:"nenhum", corpo:"atletico" })}>↺ Resetar</button>
         </div>
         <div style={s.card}>
@@ -918,21 +921,47 @@ const AlunoDashboard = ({ setScreen }) => {
   const [modalTreino, setModalTreino] = useState(null);
   const [showAnamnese, setShowAnamnese] = useState(false);
   const [showCheckIn, setShowCheckIn] = useState(false);
-  const [humorAtual, setHumorAtual] = useState(null);
   const [showResumo, setShowResumo] = useState(false);
   const [showDeload, setShowDeload] = useState(true);
   const [showDeloadTreino, setShowDeloadTreino] = useState(false);
-  const musculosSemana = { "Peito":true,"Tríceps":true,"Costas":true,"Bíceps":true,"Pernas":true,"Ombros":false,"Abdômen":false,"Panturrilha":false };
-  const barData = TREINOS_SEMANA.map(t => ({ ...t, vol: t.exercises.reduce((a,e) => a+e.kg*e.reps*e.series, 0) }));
+
+  // ── Dados reais via window.gymData, fallback para mocks ──
+  const nomeReal    = gd().nome      || "Lucas Mendes";
+  const streakReal  = gd().streak    ?? 12;
+  const humorAtual  = gd().checkinHoje || null;
+  const semanaReal  = gd().treinosSemana || TREINOS_SEMANA;
+  const sessoesSem  = gd().sessoesSemana || TREINOS_SEMANA.filter(t=>t.done);
+  const totalTreinos= gd().totalTreinos ?? 87;
+  const tempoMedio  = gd().tempoMedio   ?? 62;
+
+  const barData = semanaReal.map(t => ({ ...t, vol: t.exercises ? t.exercises.reduce((a,e) => a+e.kg*e.reps*(e.series||1), 0) : (t.vol||0) }));
+
+  // Grupos musculares da semana (calculado a partir das sessões reais)
+  const musculosTreinados = new Set(semanaReal.filter(t=>t.done).flatMap(t=>t.muscles||[]));
+  const musculosSemana = {
+    "Peito":    musculosTreinados.has("Peito"),
+    "Tríceps":  musculosTreinados.has("Tríceps"),
+    "Costas":   musculosTreinados.has("Costas"),
+    "Bíceps":   musculosTreinados.has("Bíceps"),
+    "Pernas":   musculosTreinados.has("Pernas"),
+    "Ombros":   musculosTreinados.has("Ombros"),
+    "Abdômen":  musculosTreinados.has("Abdômen"),
+    "Panturrilha": musculosTreinados.has("Panturrilha"),
+  };
+
   const humorColors = { cansado:C.muted, normal:C.blue, disposto:C.accent };
   const humorIcons  = { cansado:"😴", normal:"😐", disposto:"💪" };
-  const missoesPendentes = MISSOES_SEMANA.filter(m => !m.concluida).length;
+  const missoesConcluidas = (gd().missoes || []).length;
+  const missoesPendentes  = Math.max(0, MISSOES_SEMANA.length - missoesConcluidas);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       {modalTreino&&<WorkoutDetailModal treino={modalTreino} onClose={() => setModalTreino(null)} />}
       {showAnamnese&&<AnamneseModal onClose={() => setShowAnamnese(false)} />}
-      {showCheckIn&&<CheckInHumorModal onClose={() => setShowCheckIn(false)} onConfirm={(h) => { setHumorAtual(h); setShowCheckIn(false); setScreen("alunoTreino"); }} />}
+      {showCheckIn&&<CheckInHumorModal onClose={() => setShowCheckIn(false)} onConfirm={async (h) => {
+        if (gd().saveCheckin) await gd().saveCheckin(h);
+        setShowCheckIn(false); setScreen("alunoTreino");
+      }} />}
       {showResumo&&<ResumoSemanalModal onClose={() => setShowResumo(false)} />}
       {showDeloadTreino&&<DeloadTreinoModal onClose={() => setShowDeloadTreino(false)} />}
 
@@ -941,7 +970,7 @@ const AlunoDashboard = ({ setScreen }) => {
         <div style={{ display:"flex", flexWrap:"wrap", justifyContent:"space-between", alignItems:"flex-start", gap:14 }}>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:12, color:C.muted, marginBottom:2 }}>Boa tarde 👋</div>
-            <h1 style={{ ...s.h1, fontSize:22, marginBottom:8 }}>Lucas Mendes</h1>
+            <h1 style={{ ...s.h1, fontSize:22, marginBottom:8 }}>{nomeReal}</h1>
             <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
               <Badge text="Intermediário" color={C.blue} />
               <Badge text="Personal: Dr. Paulo" color={C.purple} />
@@ -964,7 +993,7 @@ const AlunoDashboard = ({ setScreen }) => {
           </div>
           <div style={{ ...s.card, textAlign:"center", minWidth:80, padding:14, flexShrink:0 }}>
             <div style={{ fontSize:26 }}>🔥</div>
-            <div style={{ fontSize:22, fontWeight:800, color:C.orange }}>12</div>
+            <div style={{ fontSize:22, fontWeight:800, color:C.orange }}>{streakReal}</div>
             <div style={{ fontSize:10, color:C.muted }}>dias seguidos</div>
           </div>
         </div>
@@ -1028,10 +1057,10 @@ const AlunoDashboard = ({ setScreen }) => {
       </div>
 
       <div className="rg4" style={{display:"grid",gap:16}}>
-        <StatCard label="Treinos essa semana" value="3" sub="Meta: 5" color={C.accent} icon="🏋️" />
-        <StatCard label="Maior carga (Supino)" value="80kg" sub="+5kg vs ant." color={C.blue} icon="📈" />
-        <StatCard label="Tempo médio" value="62min" sub="por sessão" color={C.purple} icon="⏱️" />
-        <StatCard label="Próximo treino" value="Hoje" sub="Ombros + Abdômen" color={C.orange} icon="📅" />
+        <StatCard label="Treinos essa semana" value={sessoesSem.length} sub="Meta: 5" color={C.accent} icon="🏋️" />
+        <StatCard label="Total de treinos" value={totalTreinos} sub="no GymAI" color={C.blue} icon="📈" />
+        <StatCard label="Tempo médio" value={tempoMedio ? `${tempoMedio}min` : "—"} sub="por sessão" color={C.purple} icon="⏱️" />
+        <StatCard label="Próximo treino" value="Hoje" sub="Configure agora" color={C.orange} icon="📅" />
       </div>
       <div className="rg2" style={{display:"grid",gap:16}}>
         <div style={s.card}>
@@ -1179,7 +1208,24 @@ const TreinoAtivo = ({ treino, academia, onBack }) => {
             </div>
             <div style={{ display:"flex", gap:10 }}>
               <button style={{ ...btn(C.muted,true), flex:1, fontSize:13 }} onClick={onBack}>← Voltar</button>
-              <button style={{ ...btn(C.accent), flex:2, fontSize:13 }} onClick={onBack}>📤 Compartilhar resultado</button>
+              <button style={{ ...btn(C.accent), flex:2, fontSize:13 }} onClick={async () => {
+                if (gd().saveSession) {
+                  const musculos = [...new Set(treino.exercises.map(e => e.muscle))];
+                  await gd().saveSession({
+                    titulo: treino.nome,
+                    musculos,
+                    duracao_min: 60,
+                    metodologia: "normal",
+                    foco: "hipertrofia",
+                    academia_id: academia?.id || null,
+                    exercises: treino.exercises.map(ex => ({
+                      ...ex,
+                      done: done[ex.id]?.series || [],
+                    })),
+                  });
+                }
+                onBack();
+              }}>💾 Salvar treino</button>
             </div>
           </div>
         </div>
@@ -1390,23 +1436,28 @@ const AlunoTreino = ({ setScreen }) => {
 };
 
 const AlunoHistorico = () => {
-  const [exSelecionado, setExSelecionado] = useState("Rosca Direta");
-  const hist = HISTORICO_EXERCICIOS[exSelecionado]||[];
+  const historicoReal = gd().historicoExercicios || HISTORICO_EXERCICIOS;
+  const sessoesReais  = gd().sessions || [];
+  const totalReal     = gd().totalTreinos ?? 87;
+  const streakMaxReal = gd().streak ?? 21;
+  const exKeys        = Object.keys(historicoReal).length > 0 ? Object.keys(historicoReal) : Object.keys(HISTORICO_EXERCICIOS);
+  const [exSelecionado, setExSelecionado] = useState(exKeys[0] || "Rosca Direta");
+  const hist = historicoReal[exSelecionado] || HISTORICO_EXERCICIOS[exSelecionado] || [];
   const chartData = [...hist].reverse().map((h,i) => ({ week:`S${i+1}`, kg:h.kg }));
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
       <h1 style={s.h1}>Histórico & Evolução</h1>
       <div className="rg4" style={{display:"grid",gap:16}}>
-        <StatCard label="Total de treinos" value="87" sub="desde ago/2024" color={C.accent} icon="🏋️" />
-        <StatCard label="PR — Supino Reto" value="80kg" sub="Banco de Supino c/ Barra" color={C.blue} icon="🏆" />
-        <StatCard label="Maior sequência" value="21 dias" sub="🔥 recorde pessoal" color={C.orange} icon="🔥" />
-        <StatCard label="Exercícios mapeados" value="14" sub="com evolução" color={C.purple} icon="📊" />
+        <StatCard label="Total de treinos" value={totalReal} sub="no GymAI" color={C.accent} icon="🏋️" />
+        <StatCard label="Exercícios rastreados" value={exKeys.length} sub="com evolução" color={C.blue} icon="📊" />
+        <StatCard label="Maior sequência" value={`${streakMaxReal} dias`} sub="🔥 sequência atual" color={C.orange} icon="🔥" />
+        <StatCard label="Exercícios mapeados" value={exKeys.length} sub="com histórico" color={C.purple} icon="📊" />
       </div>
       <div style={s.card}>
         <div style={{ display:"flex", flexWrap:"wrap", justifyContent:"space-between", alignItems:"center", gap:12, marginBottom:16 }}>
           <h3 style={s.h3}>Evolução de Carga</h3>
           <select value={exSelecionado} onChange={e => setExSelecionado(e.target.value)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", color:C.text, fontFamily:"inherit", fontSize:13 }}>
-            {Object.keys(HISTORICO_EXERCICIOS).map(e => <option key={e}>{e}</option>)}
+            {exKeys.map(e => <option key={e}>{e}</option>)}
           </select>
         </div>
         {chartData.length>1&&<LineChart data={chartData} color={C.accent} height={100} />}
@@ -1507,9 +1558,9 @@ const BADGES_PERSONAL = [
   { id:"b4", nome:"Monstro do Volume",   icon:"📊", desc:"Volume > 8.000kg em uma sessão",      cor:C.accent, alunos:[] },
 ];
 
-// XP atual do aluno (mock — seria calculado do histórico real)
-const ALUNO_XP = 1820;
-const ALUNO_NIVEL = XP_LEVELS.find(l => ALUNO_XP >= l.xpMin && ALUNO_XP < l.xpMax) || XP_LEVELS[0];
+// XP e nível — dados reais do Supabase via window.gymData, fallback para mock
+const ALUNO_XP = gd().xp ?? 1820;
+const ALUNO_NIVEL = gd().nivelGamificacao || XP_LEVELS.find(l => ALUNO_XP >= l.xpMin && ALUNO_XP < l.xpMax) || XP_LEVELS[0];
 
 // ─────────────────────────────────────────────────────────────────────────────
 const PersonalStatsModal = ({ tipo, onClose }) => {
@@ -1629,26 +1680,30 @@ const XPBanner = ({ onClick }) => {
 // ─── GAMIFICAÇÃO: TELA CONQUISTAS + MISSÕES ───────────────────────────────────
 const GamificacaoScreen = () => {
   const [aba, setAba] = useState("missoes");
-  const xpPct = Math.round(((ALUNO_XP - ALUNO_NIVEL.xpMin) / (ALUNO_NIVEL.xpMax - ALUNO_NIVEL.xpMin)) * 100);
+  const xpReal    = gd().xp ?? ALUNO_XP;
+  const nivelReal = gd().nivelGamificacao || ALUNO_NIVEL;
+  const conquistasIds = gd().conquistas || [];
+  const missoesIds    = gd().missoes    || [];
+  const xpPct = Math.round(((xpReal - nivelReal.xpMin) / (nivelReal.xpMax - nivelReal.xpMin)) * 100);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
-      <div><div style={s.lbl}>Lucas Mendes</div><h1 style={s.h1}>Conquistas & Missões</h1></div>
+      <div><div style={s.lbl}>{gd().nome || "Lucas Mendes"}</div><h1 style={s.h1}>Conquistas & Missões</h1></div>
 
       {/* Level card */}
       <div style={{ ...s.card, background:`${ALUNO_NIVEL.cor}10`, borderColor:`${ALUNO_NIVEL.cor}40`, padding:20 }}>
         <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
-          <div style={{ fontSize:52 }}>{ALUNO_NIVEL.icon}</div>
+          <div style={{ fontSize:52 }}>{nivelReal.icon}</div>
           <div style={{ flex:1 }}>
-            <div style={{ fontWeight:800, fontSize:22, color:ALUNO_NIVEL.cor }}>{ALUNO_NIVEL.nivel}</div>
-            <div style={{ fontSize:13, color:C.muted, marginBottom:10 }}>{ALUNO_XP} XP · {xpPct}% para o próximo nível</div>
-            <PBar pct={xpPct} color={ALUNO_NIVEL.cor} />
+            <div style={{ fontWeight:800, fontSize:22, color:nivelReal.cor }}>{nivelReal.nivel}</div>
+            <div style={{ fontSize:13, color:C.muted, marginBottom:10 }}>{xpReal} XP · {xpPct}% para o próximo nível</div>
+            <PBar pct={xpPct} color={nivelReal.cor} />
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {XP_LEVELS.map((l, i) => (
-              <div key={l.nivel} style={{ display:"flex", alignItems:"center", gap:6, opacity: ALUNO_XP >= l.xpMin ? 1 : 0.35 }}>
+              <div key={l.nivel} style={{ display:"flex", alignItems:"center", gap:6, opacity: xpReal >= l.xpMin ? 1 : 0.35 }}>
                 <span style={{ fontSize:14 }}>{l.icon}</span>
-                <span style={{ fontSize:11, color: ALUNO_XP >= l.xpMin ? l.cor : C.muted, fontWeight: l.nivel === ALUNO_NIVEL.nivel ? 800 : 400 }}>{l.nivel}</span>
-                {l.nivel === ALUNO_NIVEL.nivel && <Badge text="atual" color={l.cor} />}
+                <span style={{ fontSize:11, color: xpReal >= l.xpMin ? l.cor : C.muted, fontWeight: l.nivel === nivelReal.nivel ? 800 : 400 }}>{l.nivel}</span>
+                {l.nivel === nivelReal.nivel && <Badge text="atual" color={l.cor} />}
               </div>
             ))}
           </div>
@@ -1664,17 +1719,18 @@ const GamificacaoScreen = () => {
 
       {aba === "missoes" && (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-          <div style={{ fontSize:12, color:C.muted }}>Semana de 26/05 a 01/06 · Reinicia domingo à meia-noite</div>
+          <div style={{ fontSize:12, color:C.muted }}>Semana atual · Reinicia domingo à meia-noite</div>
           {MISSOES_SEMANA.map(m => {
-            const pct = Math.min(100, Math.round((m.atual / m.meta) * 100));
+            const concluida = missoesIds.includes(m.id) || m.concluida;
+            const pct = concluida ? 100 : Math.min(100, Math.round((m.atual / m.meta) * 100));
             return (
-              <div key={m.id} style={{ ...s.card, padding:16, borderLeft:`4px solid ${m.concluida ? C.accent : C.border}`, background: m.concluida ? `${C.accent}08` : C.card }}>
+              <div key={m.id} style={{ ...s.card, padding:16, borderLeft:`4px solid ${concluida ? C.accent : C.border}`, background: concluida ? `${C.accent}08` : C.card }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                   <div>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                       <span style={{ fontSize:20 }}>{m.badge}</span>
                       <span style={{ fontWeight:700, fontSize:14 }}>{m.titulo}</span>
-                      {m.concluida && <Badge text="✓ Concluída" color={C.accent} />}
+                      {concluida && <Badge text="✓ Concluída" color={C.accent} />}
                     </div>
                     <div style={{ fontSize:12, color:C.muted, marginTop:3 }}>
                       {typeof m.meta === "number" && m.meta > 100
@@ -1683,10 +1739,10 @@ const GamificacaoScreen = () => {
                     </div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:16, fontWeight:800, color: m.concluida ? C.accent : C.muted }}>+{m.xp} XP</div>
+                    <div style={{ fontSize:16, fontWeight:800, color: concluida ? C.accent : C.muted }}>+{m.xp} XP</div>
                   </div>
                 </div>
-                <PBar pct={pct} color={m.concluida ? C.accent : C.blue} />
+                <PBar pct={pct} color={concluida ? C.accent : C.blue} />
               </div>
             );
           })}
@@ -1695,17 +1751,20 @@ const GamificacaoScreen = () => {
 
       {aba === "conquistas" && (
         <div className="rg2" style={{display:"grid",gap:12}}>
-          {CONQUISTAS_CATALOGO.map(c => (
-            <div key={c.id} style={{ ...s.card, padding:16, opacity: c.desbloqueado ? 1 : 0.45, borderColor: c.desbloqueado ? `${C.accent}40` : C.border, background: c.desbloqueado ? `${C.accent}06` : C.card }}>
-              <div style={{ fontSize:30, marginBottom:8 }}>{c.icon}</div>
-              <div style={{ fontWeight:700, fontSize:13 }}>{c.titulo}</div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:3, marginBottom:8 }}>{c.desc}</div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <Badge text={`+${c.xp} XP`} color={c.desbloqueado ? C.accent : C.muted} />
-                {c.desbloqueado ? <span style={{ fontSize:11, color:C.accent, fontWeight:700 }}>✓ Desbloqueado</span> : <span style={{ fontSize:10, color:C.muted }}>🔒 Bloqueado</span>}
+          {CONQUISTAS_CATALOGO.map(c => {
+            const desbloqueado = conquistasIds.includes(c.id) || c.desbloqueado;
+            return (
+              <div key={c.id} style={{ ...s.card, padding:16, opacity: desbloqueado ? 1 : 0.45, borderColor: desbloqueado ? `${C.accent}40` : C.border, background: desbloqueado ? `${C.accent}06` : C.card }}>
+                <div style={{ fontSize:30, marginBottom:8 }}>{c.icon}</div>
+                <div style={{ fontWeight:700, fontSize:13 }}>{c.titulo}</div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:3, marginBottom:8 }}>{c.desc}</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <Badge text={`+${c.xp} XP`} color={desbloqueado ? C.accent : C.muted} />
+                  {desbloqueado ? <span style={{ fontSize:11, color:C.accent, fontWeight:700 }}>✓ Desbloqueado</span> : <span style={{ fontSize:10, color:C.muted }}>🔒 Bloqueado</span>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2108,7 +2167,7 @@ const AdminPlanosManager = () => {
 
 // ─── SOBRECARGA PROGRESSIVA IA (componente inline) ────────────────────────────
 const SobrecargazPanel = ({ exercicio }) => {
-  const hist = HISTORICO_EXERCICIOS[exercicio];
+  const hist = (gd().historicoExercicios || HISTORICO_EXERCICIOS)[exercicio];
   if (!hist || hist.length < 2) return null;
   const ultima = hist[0];
   const penultima = hist[1];
@@ -2140,7 +2199,7 @@ const PersonalDashboard = ({ setScreen }) => {
   const [statsModal, setStatsModal] = useState(null);
   const [showCopilot, setShowCopilot] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
-  const alunos = ALUNOS_TODOS;
+  const alunos = gd().alunos?.length > 0 ? gd().alunos : ALUNOS_TODOS;
   const ativos = alunos.filter(a => a.status !== "danger").length;
   const emRisco = alunos.filter(a => a.risco).length;
   const treinosAtivos = TREINOS_PERSONAL.filter(t => t.ativo).length;
@@ -2327,10 +2386,13 @@ const PersonalAssociarAluno = ({ setScreen }) => {
     u.cpf.includes(busca)
   ) : [];
 
-  const associar = (aluno) => {
+  const associar = async (aluno) => {
+    if (gd().associarAluno) {
+      const { error } = await gd().associarAluno(aluno.email);
+      if (error) { alert("Erro ao associar: " + error); return; }
+    }
     setAssociados(prev => [...prev, aluno.name]);
-    setEncontrado(null);
-    setBusca("");
+    setEncontrado(null); setBusca("");
     setConfirmado(aluno.name);
     setTimeout(() => setConfirmado(null), 3500);
   };
@@ -3992,7 +4054,8 @@ export default function App() {
           ))}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div className="topbar-version" style={{ fontSize:12, color:C.muted }}>v2.7 · Protótipo</div>
+          <div className="topbar-version" style={{ fontSize:12, color:C.muted }}>v2.7</div>
+          <button onClick={() => gd().signOut && gd().signOut()} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:8, padding:"5px 10px", color:C.muted, cursor:"pointer", fontSize:11, fontFamily:"inherit" }}>Sair</button>
           <button className="show-mobile-only" onClick={() => setMobileNavOpen(v=>!v)} style={{ background:mobileNavOpen?`${cfg.color}20`:"transparent", border:`1px solid ${mobileNavOpen?cfg.color:C.border}`, borderRadius:8, width:36, height:36, cursor:"pointer", color:mobileNavOpen?cfg.color:C.muted, fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>{mobileNavOpen?"✕":"☰"}</button>
         </div>
       </div>
@@ -4020,7 +4083,7 @@ export default function App() {
             <div style={{ flex:1 }} />
             <div style={{ padding:"12px 12px", borderTop:`1px solid ${C.border}` }}>
               <div style={{ fontSize:11, color:C.muted }}>Logado como</div>
-              <div style={{ fontSize:13, fontWeight:700, color:cfg.color, marginTop:2 }}>{userNames[persona]}</div>
+              <div style={{ fontSize:13, fontWeight:700, color:cfg.color, marginTop:2 }}>{gd().nome || userNames[persona]}</div>
             </div>
           </div>
         )}
